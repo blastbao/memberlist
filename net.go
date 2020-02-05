@@ -15,10 +15,11 @@ import (
 	"github.com/hashicorp/go-msgpack/codec"
 )
 
-// This is the minimum and maximum protocol version that we can
-// _understand_. We're allowed to speak at any version within this
-// range. This range is inclusive.
+// This is the minimum and maximum protocol version that we can _understand_.
+// We're allowed to speak at any version within this range.
+// This range is inclusive.
 const (
+
 	ProtocolVersionMin uint8 = 1
 
 	// Version 3 added support for TCP pings but we kept the default
@@ -34,6 +35,7 @@ const (
 	// understand version 4 or greater.
 	ProtocolVersion2Compatible = 2
 
+
 	ProtocolVersionMax = 5
 )
 
@@ -42,6 +44,7 @@ const (
 type messageType uint8
 
 // The list of available message types.
+// 可用消息类型
 const (
 	pingMsg messageType = iota
 	indirectPingMsg
@@ -72,18 +75,20 @@ const (
 	compoundOverhead       = 2   // Assumed overhead per entry in compoundHeader
 	userMsgOverhead        = 1
 	blockingWarning        = 10 * time.Millisecond // Warn if a UDP packet takes this long to process
-	maxPushStateBytes      = 20 * 1024 * 1024
+	maxPushStateBytes      = 20 * 1024 * 1024	// 20MB
 	maxPushPullRequests    = 128 // Maximum number of concurrent push/pull requests
 )
 
 // ping request sent directly to node
 type ping struct {
+
 	SeqNo uint32
 
 	// Node is sent so the target can verify they are
 	// the intended recipient. This is to protect again an agent
 	// restart with a new name.
 	Node string
+
 }
 
 // indirect ping sent to an indirect ndoe
@@ -142,8 +147,9 @@ type dead struct {
 	From        string // Include who is suspecting
 }
 
-// pushPullHeader is used to inform the
-// otherside how many states we are transferring
+
+// pushPullHeader is used to inform the otherside how many states we are transferring.
+// pushPullHeader 用于通知另一端我们正要传输多少个状态。
 type pushPullHeader struct {
 	Nodes        int
 	UserStateLen int  // Encodes the byte lengh of user state
@@ -155,8 +161,7 @@ type userMsgHeader struct {
 	UserMsgLen int // Encodes the byte lengh of user state
 }
 
-// pushNodeState is used for pushPullReq when we are
-// transferring out node states
+// pushNodeState is used for pushPullReq when we are transferring out node states
 type pushNodeState struct {
 	Name        string
 	Addr        []byte
@@ -196,9 +201,9 @@ func (m *Memberlist) encryptionVersion() encryptionVersion {
 func (m *Memberlist) streamListen() {
 	for {
 		select {
+		// 处理 tcp 连接
 		case conn := <-m.transport.StreamCh():
 			go m.handleConn(conn)
-
 		case <-m.shutdownCh:
 			return
 		}
@@ -210,14 +215,27 @@ func (m *Memberlist) handleConn(conn net.Conn) {
 	m.logger.Printf("[DEBUG] memberlist: Stream connection %s", LogConn(conn))
 
 	defer conn.Close()
+
+
+	// 增加计数 `memberlist.tcp.accept`
 	metrics.IncrCounter([]string{"memberlist", "tcp", "accept"}, 1)
 
+	// 设置读写超时
 	conn.SetDeadline(time.Now().Add(m.config.TCPTimeout))
+
+	// 读取
 	msgType, bufConn, dec, err := m.readStream(conn)
+
+
+	// 读取 conn 出错，则把出错信息写会给 conn
 	if err != nil {
+
 		if err != io.EOF {
 			m.logger.Printf("[ERR] memberlist: failed to receive: %s %s", err, LogConn(conn))
 
+			// ErrMsg := ErrMsgType + ErrMsgBody(&errResp{})
+
+			// 构造错误消息
 			resp := errResp{err.Error()}
 			out, err := encode(errMsg, &resp)
 			if err != nil {
@@ -225,6 +243,7 @@ func (m *Memberlist) handleConn(conn net.Conn) {
 				return
 			}
 
+			// 发送错误消息给 conn
 			err = m.rawSendMsgStream(conn, out.Bytes())
 			if err != nil {
 				m.logger.Printf("[ERR] memberlist: Failed to send error: %s %s", err, LogConn(conn))
@@ -234,6 +253,7 @@ func (m *Memberlist) handleConn(conn net.Conn) {
 		return
 	}
 
+	//
 	switch msgType {
 	case userMsg:
 		if err := m.readUserMsg(bufConn, dec); err != nil {
@@ -293,6 +313,7 @@ func (m *Memberlist) handleConn(conn net.Conn) {
 		m.logger.Printf("[ERR] memberlist: Received invalid msgType (%d) %s", msgType, LogConn(conn))
 	}
 }
+
 
 // packetListen is a long running goroutine that pulls packets out of the
 // transport and hands them off for processing.
@@ -817,6 +838,8 @@ func (m *Memberlist) sendAndReceiveState(addr string, join bool) ([]pushNodeStat
 
 // sendLocalState is invoked to send our local state over a stream connection.
 func (m *Memberlist) sendLocalState(conn net.Conn, join bool) error {
+
+
 	// Setup a deadline
 	conn.SetDeadline(time.Now().Add(m.config.TCPTimeout))
 
@@ -830,10 +853,7 @@ func (m *Memberlist) sendLocalState(conn net.Conn, join bool) error {
 		localNodes[idx].Incarnation = n.Incarnation
 		localNodes[idx].State = n.State
 		localNodes[idx].Meta = n.Meta
-		localNodes[idx].Vsn = []uint8{
-			n.PMin, n.PMax, n.PCur,
-			n.DMin, n.DMax, n.DCur,
-		}
+		localNodes[idx].Vsn = []uint8{ n.PMin, n.PMax, n.PCur, n.DMin, n.DMax, n.DCur}
 	}
 	m.nodeLock.RUnlock()
 
@@ -847,7 +867,13 @@ func (m *Memberlist) sendLocalState(conn net.Conn, join bool) error {
 	bufConn := bytes.NewBuffer(nil)
 
 	// Send our node state
-	header := pushPullHeader{Nodes: len(localNodes), UserStateLen: len(userData), Join: join}
+	header := pushPullHeader{
+		Nodes: len(localNodes),			//
+		UserStateLen: len(userData),	//
+		Join: join,						//
+	}
+
+	//
 	hd := codec.MsgpackHandle{}
 	enc := codec.NewEncoder(bufConn, &hd)
 
@@ -859,6 +885,7 @@ func (m *Memberlist) sendLocalState(conn net.Conn, join bool) error {
 	if err := enc.Encode(&header); err != nil {
 		return err
 	}
+
 	for i := 0; i < header.Nodes; i++ {
 		if err := enc.Encode(&localNodes[i]); err != nil {
 			return err
@@ -901,56 +928,97 @@ func (m *Memberlist) encryptLocalState(sendBuf []byte) ([]byte, error) {
 
 // decryptRemoteState is used to help decrypt the remote state
 func (m *Memberlist) decryptRemoteState(bufConn io.Reader) ([]byte, error) {
+
 	// Read in enough to determine message length
+
+
+
+
+
+
+
+
+	// 构造 buf
 	cipherText := bytes.NewBuffer(nil)
+
+	// 写入 1B 的消息类型到 buf 中
 	cipherText.WriteByte(byte(encryptMsg))
+
+	// 从 bufConn 读取 4B 到 buf 中，这 4B 为 MsgBody 的长度
 	_, err := io.CopyN(cipherText, bufConn, 4)
 	if err != nil {
 		return nil, err
 	}
 
-	// Ensure we aren't asked to download too much. This is to guard against
-	// an attack vector where a huge amount of state is sent
-	moreBytes := binary.BigEndian.Uint32(cipherText.Bytes()[1:5])
-	if moreBytes > maxPushStateBytes {
-		return nil, fmt.Errorf("Remote node state is larger than limit (%d)", moreBytes)
+	// Ensure we aren't asked to download too much.
+	// 确保我们不需要从 bufConn 中读取太多数据。
+	//
+	// This is to guard against an attack vector where a huge amount of state is sent.
+	// 这是为了防止大数据量的请求攻击。
+
+
+	// 解析出 4B 的 MsgBody 长度
+	msgBodyLen := binary.BigEndian.Uint32(cipherText.Bytes()[1:5])
+
+	// 如果 MsgBody 长度超过 20MB 则报错
+	if msgBodyLen > maxPushStateBytes {
+		return nil, fmt.Errorf("Remote node state is larger than limit (%d)", msgBodyLen)
 	}
 
+
 	// Read in the rest of the payload
-	_, err = io.CopyN(cipherText, bufConn, int64(moreBytes))
+	//
+	// 从 bufConn 读取 msgBodyLen 个字节到 buf 中
+	_, err = io.CopyN(cipherText, bufConn, int64(msgBodyLen))
 	if err != nil {
 		return nil, err
 	}
 
+
 	// Decrypt the cipherText
-	dataBytes := cipherText.Bytes()[:5]
-	cipherBytes := cipherText.Bytes()[5:]
+
+	//
+	dataBytes := cipherText.Bytes()[:5]		// MsgType + MsgBodyLength
+	cipherBytes := cipherText.Bytes()[5:]	// MsgBody
 
 	// Decrypt the payload
+
+	// 获取解密 key
 	keys := m.config.Keyring.GetKeys()
+
+	// 解密
 	return decryptPayload(keys, cipherBytes, dataBytes)
 }
 
 // readStream is used to read from a stream connection, decrypting and
 // decompressing the stream if necessary.
 func (m *Memberlist) readStream(conn net.Conn) (messageType, io.Reader, *codec.Decoder, error) {
+
 	// Created a buffered reader
 	var bufConn io.Reader = bufio.NewReader(conn)
 
-	// Read the message type
+
+	// Msg := MsgType(1B) + MsgBody
+
+
+
+	// 读取 1B 的消息类型 (msgType)
 	buf := [1]byte{0}
 	if _, err := bufConn.Read(buf[:]); err != nil {
 		return 0, nil, nil, err
 	}
 	msgType := messageType(buf[0])
 
-	// Check if the message is encrypted
+
+	// 检查消息是否被加密
 	if msgType == encryptMsg {
+
+		// 如果消息加密，但是 conf 未开启加密，则报错
 		if !m.config.EncryptionEnabled() {
-			return 0, nil, nil,
-				fmt.Errorf("Remote state is encrypted and encryption is not configured")
+			return 0, nil, nil, fmt.Errorf("Remote state is encrypted and encryption is not configured")
 		}
 
+		// 解密
 		plain, err := m.decryptRemoteState(bufConn)
 		if err != nil {
 			return 0, nil, nil, err
@@ -959,25 +1027,36 @@ func (m *Memberlist) readStream(conn net.Conn) (messageType, io.Reader, *codec.D
 		// Reset message type and bufConn
 		msgType = messageType(plain[0])
 		bufConn = bytes.NewReader(plain[1:])
-	} else if m.config.EncryptionEnabled() && m.config.GossipVerifyIncoming {
-		return 0, nil, nil,
-			fmt.Errorf("Encryption is configured but remote state is not encrypted")
+
+	} else {
+		// 如果消息未加密，但是 conf 开启了加密，则报错
+		if m.config.EncryptionEnabled() && m.config.GossipVerifyIncoming {
+			return 0, nil, nil, fmt.Errorf("Encryption is configured but remote state is not encrypted")
+		}
 	}
 
+
 	// Get the msgPack decoders
+	//
 	hd := codec.MsgpackHandle{}
 	dec := codec.NewDecoder(bufConn, &hd)
 
 	// Check if we have a compressed message
 	if msgType == compressMsg {
+
+
 		var c compress
+
 		if err := dec.Decode(&c); err != nil {
 			return 0, nil, nil, err
 		}
+
+
 		decomp, err := decompressBuffer(&c)
 		if err != nil {
 			return 0, nil, nil, err
 		}
+
 
 		// Reset the message type
 		msgType = messageType(decomp[0])
@@ -992,8 +1071,15 @@ func (m *Memberlist) readStream(conn net.Conn) (messageType, io.Reader, *codec.D
 	return msgType, bufConn, dec, nil
 }
 
+
+
+
 // readRemoteState is used to read the remote state from a connection
+//
+// readRemoteState 用于从连接中读取远程状态。
 func (m *Memberlist) readRemoteState(bufConn io.Reader, dec *codec.Decoder) (bool, []pushNodeState, []byte, error) {
+
+
 	// Read the push/pull header
 	var header pushPullHeader
 	if err := dec.Decode(&header); err != nil {
@@ -1025,8 +1111,8 @@ func (m *Memberlist) readRemoteState(bufConn io.Reader, dec *codec.Decoder) (boo
 		}
 	}
 
-	// For proto versions < 2, there is no port provided. Mask old
-	// behavior by using the configured port
+	// For proto versions < 2, there is no port provided.
+	// Mask old behavior by using the configured port.
 	for idx := range remoteNodes {
 		if m.ProtocolVersion() < 2 || remoteNodes[idx].Port == 0 {
 			remoteNodes[idx].Port = uint16(m.config.BindPort)

@@ -32,36 +32,71 @@ import (
 )
 
 type Memberlist struct {
+
+	// 本地 seq 序列号
 	sequenceNum uint32 // Local sequence number
+	// 本地 incarnate 序列号
 	incarnation uint32 // Local incarnation number
+
+	//
 	numNodes    uint32 // Number of known nodes (estimate)
 	pushPullReq uint32 // Number of push/pull requests
 
+	// 配置
 	config         *Config
+
+	// 本地服务关闭的标志(bool)
 	shutdown       int32 // Used as an atomic boolean value
+	// 本地服务关闭的信号管道
 	shutdownCh     chan struct{}
+
+	// 本节点退出的标志(bool)
 	leave          int32 // Used as an atomic boolean value
+	// 本节点退出的信号管道
 	leaveBroadcast chan struct{}
+
+
 
 	shutdownLock sync.Mutex // Serializes calls to Shutdown
 	leaveLock    sync.Mutex // Serializes calls to Leave
 
+
+
+
+
 	transport Transport
 
+
+
+
 	handoffCh            chan struct{}
+
+
+
 	highPriorityMsgQueue *list.List
 	lowPriorityMsgQueue  *list.List
+
+
+
 	msgQueueLock         sync.Mutex
 
 	nodeLock   sync.RWMutex
 	nodes      []*nodeState          // Known nodes
 	nodeMap    map[string]*nodeState // Maps Node.Name -> NodeState
 	nodeTimers map[string]*suspicion // Maps Node.Name -> suspicion timer
+
+
 	awareness  *awareness
 
+
 	tickerLock sync.Mutex
+
+
 	tickers    []*time.Ticker
 	stopTick   chan struct{}
+
+
+
 	probeIndex int
 
 	ackLock     sync.Mutex
@@ -84,35 +119,47 @@ func (conf *Config) BuildVsnArray() []uint8 {
 // newMemberlist creates the network listeners.
 // Does not schedule execution of background maintenance.
 func newMemberlist(conf *Config) (*Memberlist, error) {
+
+	// 检查协议版本号
 	if conf.ProtocolVersion < ProtocolVersionMin {
-		return nil, fmt.Errorf("Protocol version '%d' too low. Must be in range: [%d, %d]",
-			conf.ProtocolVersion, ProtocolVersionMin, ProtocolVersionMax)
+		return nil, fmt.Errorf("Protocol version '%d' too low. Must be in range: [%d, %d]", conf.ProtocolVersion, ProtocolVersionMin, ProtocolVersionMax)
 	} else if conf.ProtocolVersion > ProtocolVersionMax {
-		return nil, fmt.Errorf("Protocol version '%d' too high. Must be in range: [%d, %d]",
-			conf.ProtocolVersion, ProtocolVersionMin, ProtocolVersionMax)
+		return nil, fmt.Errorf("Protocol version '%d' too high. Must be in range: [%d, %d]", conf.ProtocolVersion, ProtocolVersionMin, ProtocolVersionMax)
 	}
 
+	// 如果指定了密钥
 	if len(conf.SecretKey) > 0 {
+
+		//
 		if conf.Keyring == nil {
+
 			keyring, err := NewKeyring(nil, conf.SecretKey)
+
 			if err != nil {
 				return nil, err
 			}
+
 			conf.Keyring = keyring
+
 		} else {
+
 			if err := conf.Keyring.AddKey(conf.SecretKey); err != nil {
 				return nil, err
 			}
+
 			if err := conf.Keyring.UseKey(conf.SecretKey); err != nil {
 				return nil, err
 			}
+
 		}
 	}
 
+	// 检查 logger 配置
 	if conf.LogOutput != nil && conf.Logger != nil {
 		return nil, fmt.Errorf("Cannot specify both LogOutput and Logger. Please choose a single log configuration setting.")
 	}
 
+	// 设置默认日志配置
 	logDest := conf.LogOutput
 	if logDest == nil {
 		logDest = os.Stderr
@@ -123,10 +170,14 @@ func newMemberlist(conf *Config) (*Memberlist, error) {
 		logger = log.New(logDest, "", log.LstdFlags)
 	}
 
-	// Set up a network transport by default if a custom one wasn't given
-	// by the config.
+
+	// Set up a network transport by default if a custom one wasn't given by the config.
 	transport := conf.Transport
+
+	//
 	if transport == nil {
+
+		//
 		nc := &NetTransportConfig{
 			BindAddrs: []string{conf.BindAddr},
 			BindPort:  conf.BindPort,
@@ -174,6 +225,8 @@ func newMemberlist(conf *Config) (*Memberlist, error) {
 		transport = nt
 	}
 
+
+
 	m := &Memberlist{
 		config:               conf,
 		shutdownCh:           make(chan struct{}),
@@ -189,12 +242,18 @@ func newMemberlist(conf *Config) (*Memberlist, error) {
 		broadcasts:           &TransmitLimitedQueue{RetransmitMult: conf.RetransmitMult},
 		logger:               logger,
 	}
+
+
 	m.broadcasts.NumNodes = func() int {
 		return m.estNumNodes()
 	}
-	go m.streamListen()
-	go m.packetListen()
-	go m.packetHandler()
+
+
+	go m.streamListen() 	// 开启 tcp 服务
+	go m.packetListen()		// 开启 udp 服务
+	go m.packetHandler()	//
+
+
 	return m, nil
 }
 
@@ -226,9 +285,15 @@ func Create(conf *Config) (*Memberlist, error) {
 // none could be reached. If an error is returned, the node did not successfully
 // join the cluster.
 func (m *Memberlist) Join(existing []string) (int, error) {
+
+
 	numSuccess := 0
 	var errs error
+
+
 	for _, exist := range existing {
+
+
 		addrs, err := m.resolveAddr(exist)
 		if err != nil {
 			err = fmt.Errorf("Failed to resolve %s: %v", exist, err)
@@ -237,14 +302,18 @@ func (m *Memberlist) Join(existing []string) (int, error) {
 			continue
 		}
 
+
 		for _, addr := range addrs {
+
 			hp := joinHostPort(addr.ip.String(), addr.port)
+
 			if err := m.pushPullNode(hp, true); err != nil {
 				err = fmt.Errorf("Failed to join %s: %v", addr.ip, err)
 				errs = multierror.Append(errs, err)
 				m.logger.Printf("[DEBUG] memberlist: %v", err)
 				continue
 			}
+
 			numSuccess++
 		}
 
@@ -622,6 +691,8 @@ func (m *Memberlist) anyAlive() bool {
 // GetHealthScore gives this instance's idea of how well it is meeting the soft
 // real-time requirements of the protocol. Lower numbers are better, and zero
 // means "totally healthy".
+//
+// 数字越低越好，0 意味着 “完全健康”
 func (m *Memberlist) GetHealthScore() int {
 	return m.awareness.GetHealthScore()
 }

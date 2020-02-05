@@ -7,11 +7,14 @@ import (
 	"github.com/armon/go-metrics"
 )
 
-// awareness manages a simple metric for tracking the estimated health of the
-// local node. Health is primary the node's ability to respond in the soft
-// real-time manner required for correct health checking of other nodes in the
-// cluster.
+// awareness manages a simple metric for tracking the estimated health of the local node.
+// awareness 管理一个简单的指标，用于跟踪本地节点的运行健康状况。
+//
+//
+// Health is primary the node's ability to respond in the soft real-time manner required
+// for correct health checking of other nodes in the cluster.
 type awareness struct {
+
 	sync.RWMutex
 
 	// max is the upper threshold for the timeout scale (the score will be

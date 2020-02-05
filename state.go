@@ -520,11 +520,19 @@ func (m *Memberlist) resetNodes() {
 // gossip is invoked every GossipInterval period to broadcast our gossip
 // messages to a few random nodes.
 func (m *Memberlist) gossip() {
+
+
 	defer metrics.MeasureSince([]string{"memberlist", "gossip"}, time.Now())
+
+
 
 	// Get some random live, suspect, or recently dead nodes
 	m.nodeLock.RLock()
+
+
+	// 随机获取 K 个节点
 	kNodes := kRandomNodes(m.config.GossipNodes, m.nodes, func(n *nodeState) bool {
+
 		if n.Name == m.config.Name {
 			return true
 		}
@@ -548,16 +556,25 @@ func (m *Memberlist) gossip() {
 		bytesAvail -= encryptOverhead(m.encryptionVersion())
 	}
 
+
+
+
 	for _, node := range kNodes {
+
 		// Get any pending broadcasts
+		// 获取消息队列里的消息
 		msgs := m.getBroadcasts(compoundOverhead, bytesAvail)
 		if len(msgs) == 0 {
 			return
 		}
 
+
 		addr := node.Address()
+
+		// 只有一条消息
 		if len(msgs) == 1 {
 			// Send single message as is
+			// 通过 UDP 发送消息
 			if err := m.rawSendMsgPacket(addr, &node.Node, msgs[0]); err != nil {
 				m.logger.Printf("[ERR] memberlist: Failed to send gossip to %s: %s", addr, err)
 			}
@@ -576,6 +593,7 @@ func (m *Memberlist) gossip() {
 // reasonably expensive as the entire state of this node is exchanged
 // with the other node.
 func (m *Memberlist) pushPull() {
+
 	// Get a random live node
 	m.nodeLock.RLock()
 	nodes := kRandomNodes(1, m.nodes, func(n *nodeState) bool {
